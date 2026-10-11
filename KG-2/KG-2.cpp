@@ -1,6 +1,8 @@
+// Отключает конфликтующие макросы min и max из Windows.h
 #define NOMINMAX
 #include <Windows.h>
 
+// FreeGLUT создаёт окно и обрабатывает события, GLU содержит вспомогательные функции
 #include <GL/freeglut.h>
 #include <GL/glu.h>
 
@@ -12,6 +14,7 @@
 
 using namespace std;
 
+// Подключает системные библиотеки OpenGL при сборке в Visual Studio
 #pragma comment(lib, "opengl32.lib")
 #pragma comment(lib, "glu32.lib")
 
@@ -167,7 +170,7 @@ float Length(const Vec3& vector)
     return sqrtf(Dot(vector, vector));
 }
 
-// Преобразует вектор в единичный
+// Преобразует вектор в единичный (нормирует)
 Vec3 Normalize(const Vec3& vector)
 {
     float length = Length(vector);
@@ -191,6 +194,7 @@ float Distance(const Vec2& first, const Vec2& second)
 // Считывает сечение и траекторию из файла
 bool LoadModelData(const string& fileName)
 {
+    // Открывает текстовый файл относительно рабочей папки программы
     ifstream file(fileName);
 
     if (!file)
@@ -200,6 +204,8 @@ bool LoadModelData(const string& fileName)
     }
 
     size_t sectionCount = 0;
+
+    // Первое число задаёт количество вершин плоского сечения
     file >> sectionCount;
 
     if (!file || sectionCount < 3)
@@ -208,14 +214,18 @@ bool LoadModelData(const string& fileName)
         return false;
     }
 
+    // Заранее создаёт нужное число элементов для чтения координат
     Section.resize(sectionCount);
 
+    // Каждая вершина исходного сечения содержит две координаты
     for (size_t i = 0; i < sectionCount; i++)
     {
         file >> Section[i].x >> Section[i].y;
     }
 
     size_t pathCount = 0;
+
+    // После сечения в файле указано количество точек траектории
     file >> pathCount;
 
     if (!file || pathCount < 2)
@@ -226,6 +236,7 @@ bool LoadModelData(const string& fileName)
 
     Path.resize(pathCount);
 
+    // Для каждой точки читаются координаты и угол поворота сечения
     for (size_t i = 0; i < pathCount; i++)
     {
         file >> Path[i].position.x
@@ -234,13 +245,14 @@ bool LoadModelData(const string& fileName)
             >> Path[i].rotationAngle;
     }
 
+    // Ошибка потока здесь означает недостающие или неверные значения
     if (!file)
     {
         LoadErrorMessage = "The model file has an invalid format.";
         return false;
     }
 
-    // Вершины сечения должны идти против часовой стрелки
+    // Знак удвоенной площади показывает направление обхода контура
     float signedArea = 0.0f;
 
     for (size_t i = 0; i < Section.size(); i++)
@@ -250,6 +262,7 @@ bool LoadModelData(const string& fileName)
         signedArea -= Section[next].x * Section[i].y;
     }
 
+    // Для единообразного направления внешних нормалей нужен обход против часовой стрелки
     if (signedArea < 0.0f)
     {
         reverse(Section.begin(), Section.end());
@@ -261,31 +274,37 @@ bool LoadModelData(const string& fileName)
 // Возвращает направление траектории в заданной точке
 Vec3 GetPathTangent(size_t index)
 {
+    // В первой точке направление можно определить только по следующей
     if (index == 0)
     {
         return Normalize(Path[1].position - Path[0].position);
     }
 
+    // В последней точке используется направление от предыдущей
     if (index + 1 == Path.size())
     {
         return Normalize(Path[index].position - Path[index - 1].position);
     }
 
+    // Внутри пути направление от предыдущей точки к следующей сглаживает угол ломаной
     return Normalize(Path[index + 1].position - Path[index - 1].position);
 }
 
 // Вычисляет текстурную координату вдоль периметра сечения
 void BuildSectionTextureCoordinates()
 {
+    // Для каждой вершины будет храниться положение от 0 до 1 вдоль периметра
     SectionU.assign(Section.size(), 0.0f);
     float perimeter = 0.0f;
 
+    // Накопленная длина задаёт координату вершины на развёртке
     for (size_t i = 1; i < Section.size(); i++)
     {
         perimeter += Distance(Section[i - 1], Section[i]);
         SectionU[i] = perimeter;
     }
 
+    // Добавляет замыкающую сторону от последней вершины к первой
     perimeter += Distance(Section.back(), Section.front());
 
     if (perimeter < EPSILON)
@@ -293,6 +312,7 @@ void BuildSectionTextureCoordinates()
         return;
     }
 
+    // Деление на периметр переводит накопленные расстояния в диапазон 0..1
     for (size_t i = 0; i < SectionU.size(); i++)
     {
         SectionU[i] /= perimeter;
@@ -307,15 +327,18 @@ void BuildRings()
     vector<Vec3> localX(Path.size());
     vector<Vec3> localY(Path.size());
 
+    // Для каждой точки пути заранее вычисляется направление движения
     for (size_t i = 0; i < Path.size(); i++)
     {
         tangents[i] = GetPathTangent(i);
     }
 
+    // Вспомогательная ось не должна быть почти параллельна касательной
     Vec3 reference = fabsf(Dot(tangents[0], { 0.0f, 1.0f, 0.0f })) < 0.9f
         ? Vec3{ 0.0f, 1.0f, 0.0f }
         : Vec3{ 1.0f, 0.0f, 0.0f };
 
+    // Два векторных произведения строят взаимно перпендикулярные оси сечения
     localX[0] = Normalize(Cross(reference, tangents[0]));
     localY[0] = Normalize(Cross(tangents[0], localX[0]));
 
@@ -325,6 +348,7 @@ void BuildRings()
         Vec3 projected = localX[i - 1] -
             tangents[i] * Dot(localX[i - 1], tangents[i]);
 
+        // При вырожденной проекции ось строится заново через запасное направление
         if (Length(projected) < EPSILON)
         {
             Vec3 fallback = fabsf(Dot(tangents[i], { 0.0f, 1.0f, 0.0f })) < 0.9f
@@ -338,25 +362,30 @@ void BuildRings()
         localY[i] = Normalize(Cross(tangents[i], localX[i]));
     }
 
+    // Одно кольцо содержит все вершины сечения в одной точке траектории
     Rings.assign(Path.size(), vector<Vec3>(Section.size()));
 
     for (size_t i = 0; i < Path.size(); i++)
     {
+        // Тригонометрические функции принимают угол в радианах
         float angle = Path[i].rotationAngle * PI / 180.0f;
         float cosine = cosf(angle);
         float sine = sinf(angle);
 
         for (size_t j = 0; j < Section.size(); j++)
         {
+            // Сначала вершина поворачивается в двумерной плоскости сечения
             float rotatedX = Section[j].x * cosine - Section[j].y * sine;
             float rotatedY = Section[j].x * sine + Section[j].y * cosine;
 
+            // Локальные координаты переводятся в трёхмерные мировые координаты
             Rings[i][j] = Path[i].position +
                 localX[i] * rotatedX +
                 localY[i] * rotatedY;
         }
     }
 
+    // Нормали торцов направлены наружу в противоположные стороны траектории
     StartCapNormal = tangents.front() * -1.0f;
     EndCapNormal = tangents.back();
 }
@@ -364,9 +393,11 @@ void BuildRings()
 // Вычисляет плоские и сглаженные нормали боковых граней
 void BuildNormals()
 {
+    // Сегментов между кольцами на один меньше, чем самих колец
     size_t segmentCount = Rings.size() - 1;
     size_t sideCount = Section.size();
 
+    // Плоские нормали хранятся по граням, сглаженные — по вершинам колец
     SideNormals.assign(segmentCount, vector<Vec3>(sideCount));
     SmoothNormals.assign(Rings.size(), vector<Vec3>(sideCount));
 
@@ -374,9 +405,12 @@ void BuildNormals()
     {
         for (size_t j = 0; j < sideCount; j++)
         {
+            // Остаток от деления замыкает последнюю сторону на первую вершину
             size_t next = (j + 1) % sideCount;
             Vec3 alongSection = Rings[i][next] - Rings[i][j];
             Vec3 alongPath = Rings[i + 1][j] - Rings[i][j];
+
+            // Векторное произведение двух направлений даёт перпендикуляр к грани
             Vec3 normal = Normalize(Cross(alongSection, alongPath));
 
             // Нормаль грани добавляется ко всем её вершинам
@@ -401,9 +435,11 @@ void BuildNormals()
 // Вычисляет центр и размер готовой модели
 void CalculateModelBounds()
 {
+    // Начальная вершина служит первым значением минимальных и максимальных границ
     Vec3 minimum = Rings[0][0];
     Vec3 maximum = Rings[0][0];
 
+    // Ищет ограничивающий модель параллелепипед по всем вершинам
     for (const vector<Vec3>& ring : Rings)
     {
         for (const Vec3& point : ring)
@@ -418,10 +454,12 @@ void CalculateModelBounds()
         }
     }
 
+    // Центр параллелепипеда используется как цель камеры и света
     ModelCenter = (minimum + maximum) * 0.5f;
     ModelMinimumY = minimum.y;
     ModelRadius = 0.0f;
 
+    // Радиус равен наибольшему расстоянию от центра до вершины
     for (const vector<Vec3>& ring : Rings)
     {
         for (const Vec3& point : ring)
@@ -430,8 +468,10 @@ void CalculateModelBounds()
         }
     }
 
+    // Нижняя граница защищает дальнейшие размеры от деления на слишком малое число
     ModelRadius = max(ModelRadius, 1.0f);
 
+    // Размер комнаты и положение пола выбираются относительно размера модели
     RoomHalfWidth = ModelRadius * 5.2f;
     RoomHalfDepth = ModelRadius * 5.2f;
     RoomFloorY = ModelMinimumY - ModelRadius * 0.35f;
@@ -451,14 +491,24 @@ void BuildModel()
 // Передаёт процедурную текстуру в OpenGL
 void UploadTexture(GLuint textureId, const vector<GLubyte>& pixels, int size)
 {
+    // Все следующие настройки относятся к выбранному объекту текстуры
     glBindTexture(GL_TEXTURE_2D, textureId);
+
+    // Строки RGB-массива читаются без дополнительного выравнивания байтов
     glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+
+    // Линейная фильтрация сглаживает текстуру при изменении её размера на экране
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+    // Координаты за пределами 0..1 повторяют изображение
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+
+    // Цвет текстуры умножается на результат освещения поверхности
     glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
 
+    // Передаёт массив RGB-пикселей из оперативной памяти в OpenGL
     glTexImage2D(
         GL_TEXTURE_2D,
         0,
@@ -476,6 +526,8 @@ void UploadTexture(GLuint textureId, const vector<GLubyte>& pixels, int size)
 void CreateTextures()
 {
     const int size = 128;
+
+    // На каждый пиксель выделяется по три байта: красный, зелёный и синий
     vector<GLubyte> neutralPixels(size * size * 3);
     vector<GLubyte> checkerPixels(size * size * 3);
     vector<GLubyte> metalPixels(size * size * 3);
@@ -484,21 +536,27 @@ void CreateTextures()
     {
         for (int x = 0; x < size; x++)
         {
+            // Индекс указывает на красную компоненту текущего RGB-пикселя
             int index = (y * size + x) * 3;
+
+            // Детерминированное псевдослучайное число создаёт мелкую неоднородность
             unsigned int noise = static_cast<unsigned int>(
                 x * 73856093u ^ y * 19349663u
             );
 
+            // Нейтральная текстура отличается небольшим шумом яркости
             int grain = static_cast<int>(noise % 15u) - 7;
             neutralPixels[index] = static_cast<GLubyte>(174 + grain);
             neutralPixels[index + 1] = static_cast<GLubyte>(176 + grain);
             neutralPixels[index + 2] = static_cast<GLubyte>(179 + grain);
 
+            // Номер клетки по X и Y определяет светлый или тёмный квадрат
             bool lightCell = ((x / 16) + (y / 16)) % 2 == 0;
             checkerPixels[index] = lightCell ? 205 : 92;
             checkerPixels[index + 1] = lightCell ? 210 : 97;
             checkerPixels[index + 2] = lightCell ? 215 : 102;
 
+            // Шум и горизонтальные полосы имитируют шлифованный металл
             int fineGrain = static_cast<int>((noise >> 8) % 11u) - 5;
             int brushLine = static_cast<int>(8.0f * sinf(y * 0.55f));
             int metal = 158 + fineGrain + brushLine;
@@ -508,6 +566,7 @@ void CreateTextures()
         }
     }
 
+    // OpenGL создаёт идентификаторы, после чего каждый массив загружается отдельно
     glGenTextures(TEXTURE_COUNT, TextureIds);
     UploadTexture(TextureIds[NEUTRAL_TEXTURE], neutralPixels, size);
     UploadTexture(TextureIds[CHECKER_TEXTURE], checkerPixels, size);
@@ -517,6 +576,7 @@ void CreateTextures()
 // Задаёт свойства материала трёхмерной модели
 void ApplyMaterial()
 {
+    // Материал задаёт реакцию поверхности на фоновый, рассеянный и зеркальный свет
     const GLfloat ambient[] = { 0.16f, 0.17f, 0.18f, 1.0f };
     const GLfloat diffuse[] = { 0.58f, 0.61f, 0.65f, 1.0f };
     const GLfloat specular[] = { 0.82f, 0.84f, 0.88f, 1.0f };
@@ -524,12 +584,14 @@ void ApplyMaterial()
     glMaterialfv(GL_FRONT_AND_BACK, GL_AMBIENT, ambient);
     glMaterialfv(GL_FRONT_AND_BACK, GL_DIFFUSE, diffuse);
     glMaterialfv(GL_FRONT_AND_BACK, GL_SPECULAR, specular);
+    // Чем больше GL_SHININESS, тем меньше и резче зеркальный блик
     glMaterialf(GL_FRONT_AND_BACK, GL_SHININESS, 36.0f);
 }
 
 // Возвращает положение точечного источника или прожектора
 Vec3 GetLightPosition()
 {
+    // Прожектор вынесен дальше, чтобы его конус охватывал модель и часть комнаты
     if (CurrentLight == SPOT_LIGHT)
     {
         return {
@@ -539,6 +601,7 @@ Vec3 GetLightPosition()
         };
     }
 
+    // Точечная лампа располагается ближе к центру сцены
     return {
         ModelCenter.x + ModelRadius * 0.55f,
         RoomCeilingY - ModelRadius * 0.30f,
@@ -549,6 +612,7 @@ Vec3 GetLightPosition()
 // Настраивает выбранный источник в мировых координатах
 void ConfigureLighting()
 {
+    // Отключение GL_LIGHTING заставляет OpenGL использовать заданные цвета без света
     if (!LightingEnabled)
     {
         glDisable(GL_LIGHTING);
@@ -556,6 +620,7 @@ void ConfigureLighting()
         return;
     }
 
+    // Включает общий расчёт освещения и используемый источник GL_LIGHT0
     glEnable(GL_LIGHTING);
     glEnable(GL_LIGHT0);
 
@@ -564,6 +629,7 @@ void ConfigureLighting()
     GLfloat diffuse[] = { 0.94f, 0.95f, 0.97f, 1.0f };
     GLfloat specular[] = { 1.0f, 1.0f, 1.0f, 1.0f };
 
+    // Для каждого режима корректируется яркость фоновой и прямой составляющих
     if (CurrentLight == DIRECTIONAL_LIGHT)
     {
         ambient[0] = ambient[1] = ambient[2] = 0.45f;
@@ -583,6 +649,7 @@ void ConfigureLighting()
         specular[0] = specular[1] = specular[2] = 2.60f;
     }
 
+    // Передаёт выбранные цветовые составляющие в состояние источника
     glLightfv(GL_LIGHT0, GL_AMBIENT, ambient);
     glLightfv(GL_LIGHT0, GL_DIFFUSE, diffuse);
     glLightfv(GL_LIGHT0, GL_SPECULAR, specular);
@@ -627,6 +694,7 @@ void ConfigureLighting()
             1.0f
         };
 
+        // Единичная координата w означает источник в конкретной точке мира
         glLightfv(GL_LIGHT0, GL_POSITION, lightPosition);
 
         if (CurrentLight == SPOT_LIGHT)
@@ -640,11 +708,13 @@ void ConfigureLighting()
             };
 
             glLightfv(GL_LIGHT0, GL_SPOT_DIRECTION, spotDirection);
+            // CUTOFF задаёт половину угла конуса, EXPONENT концентрирует свет к центру
             glLightf(GL_LIGHT0, GL_SPOT_CUTOFF, 55.0f);
             glLightf(GL_LIGHT0, GL_SPOT_EXPONENT, 12.0f);
         }
         else
         {
+            // Угол 180 градусов превращает позиционный источник в точечный
             glLightf(GL_LIGHT0, GL_SPOT_CUTOFF, 180.0f);
             glLightf(GL_LIGHT0, GL_SPOT_EXPONENT, 0.0f);
         }
@@ -654,6 +724,7 @@ void ConfigureLighting()
 // Передаёт OpenGL нормаль, текстурные координаты и позицию вершины
 void EmitVertex(const Vec3& point, const Vec3& normal, float u, float v)
 {
+    // Нормаль и координаты текстуры становятся атрибутами следующей вершины
     glNormal3f(normal.x, normal.y, normal.z);
     glTexCoord2f(u, v);
     glVertex3f(point.x, point.y, point.z);
@@ -665,6 +736,7 @@ void DrawModel()
     // В каркасном режиме текстура не используется
     bool useTexture = TextureEnabled && !WireframeMode;
 
+    // Меняет только способ изображения полигонов, не изменяя их координаты
     glPolygonMode(
         GL_FRONT_AND_BACK,
         WireframeMode ? GL_LINE : GL_FILL
@@ -672,6 +744,7 @@ void DrawModel()
 
     if (useTexture)
     {
+        // Выбирает одну из заранее созданных процедурных текстур
         glEnable(GL_TEXTURE_2D);
         glBindTexture(GL_TEXTURE_2D, TextureIds[CurrentTexture]);
     }
@@ -680,9 +753,11 @@ void DrawModel()
         glDisable(GL_TEXTURE_2D);
     }
 
+    // Материал используется при последующем расчёте освещения модели
     ApplyMaterial();
     glColor3f(0.68f, 0.71f, 0.75f);
 
+    // Сегмент соединяет два соседних кольца, сторона — две соседние вершины
     size_t segmentCount = Rings.size() - 1;
     size_t sideCount = Section.size();
 
@@ -691,12 +766,14 @@ void DrawModel()
 
     for (size_t i = 0; i < segmentCount; i++)
     {
+        // Координата v постепенно проходит от начала к концу траектории
         float v0 = static_cast<float>(i) / segmentCount;
         float v1 = static_cast<float>(i + 1) / segmentCount;
 
         for (size_t j = 0; j < sideCount; j++)
         {
             size_t next = (j + 1) % sideCount;
+            // Координата u проходит вдоль периметра пятиугольного сечения
             float u0 = SectionU[j];
             float u1 = next == 0 ? 1.0f : SectionU[next];
 
@@ -724,6 +801,7 @@ void DrawModel()
     glEnd();
 
     // Границы сечения нужны для текстурирования торцов
+    // Ограничивающий прямоугольник переводит координаты торца в диапазон 0..1
     float minX = Section[0].x;
     float maxX = Section[0].x;
     float minY = Section[0].y;
@@ -772,6 +850,7 @@ void DrawModel()
 
     glEnd();
 
+    // Возвращает общее состояние, чтобы текстура и каркас не влияли на другие объекты
     glDisable(GL_TEXTURE_2D);
     glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 }
@@ -779,6 +858,7 @@ void DrawModel()
 // Задаёт матовый материал поверхности комнаты
 void SetRoomMaterial(float red, float green, float blue)
 {
+    // Фоновая составляющая немного слабее основного рассеянного цвета
     GLfloat ambient[] = {
         red * 0.65f,
         green * 0.65f,
@@ -786,6 +866,7 @@ void SetRoomMaterial(float red, float green, float blue)
         1.0f
     };
     GLfloat diffuse[] = { red, green, blue, 1.0f };
+    // Слабая зеркальная составляющая делает стены почти матовыми
     const GLfloat specular[] = { 0.025f, 0.025f, 0.025f, 1.0f };
 
     glMaterialfv(GL_FRONT_AND_BACK, GL_AMBIENT, ambient);
@@ -807,6 +888,7 @@ void DrawRoomSurface(
     float blue
 )
 {
+    // Порядок axisU x axisV задаёт сторону, в которую направлена нормаль
     Vec3 normal = Normalize(Cross(axisU, axisV));
     SetRoomMaterial(red, green, blue);
 
@@ -814,14 +896,17 @@ void DrawRoomSurface(
 
     for (int u = 0; u < divisionsU; u++)
     {
+        // Доли 0..1 выбирают границы текущей ячейки вдоль первой оси
         float u0 = static_cast<float>(u) / divisionsU;
         float u1 = static_cast<float>(u + 1) / divisionsU;
 
         for (int v = 0; v < divisionsV; v++)
         {
+            // Аналогично определяется положение ячейки вдоль второй оси
             float v0 = static_cast<float>(v) / divisionsV;
             float v1 = static_cast<float>(v + 1) / divisionsV;
 
+            // Начало поверхности и два направляющих вектора задают четыре угла ячейки
             Vec3 first = origin + axisU * u0 + axisV * v0;
             Vec3 second = origin + axisU * u1 + axisV * v0;
             Vec3 third = origin + axisU * u1 + axisV * v1;
@@ -844,12 +929,14 @@ void DrawRoom()
     glDisable(GL_TEXTURE_2D);
     glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 
+    // Вычисляет мировые координаты шести границ комнаты
     float left = ModelCenter.x - RoomHalfWidth;
     float right = ModelCenter.x + RoomHalfWidth;
     float back = ModelCenter.z - RoomHalfDepth;
     float front = ModelCenter.z + RoomHalfDepth;
     float height = RoomCeilingY - RoomFloorY;
 
+    // Эти векторы задают полную ширину, глубину и высоту поверхностей
     Vec3 horizontalX = { right - left, 0.0f, 0.0f };
     Vec3 horizontalZ = { 0.0f, 0.0f, front - back };
     Vec3 vertical = { 0.0f, height, 0.0f };
@@ -926,6 +1013,7 @@ void DrawRoom()
 // Показывает позицию точечного источника или прожектора
 void DrawLightMarker()
 {
+    // У направленного источника нет конечной позиции для изображения сферы
     if (!LightingEnabled || CurrentLight == DIRECTIONAL_LIGHT)
     {
         return;
@@ -938,19 +1026,23 @@ void DrawLightMarker()
 
     glDisable(GL_TEXTURE_2D);
     glMaterialfv(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE, dark);
+    // Эмиссия заставляет маркер выглядеть светящимся, но не освещает сцену сама
     glMaterialfv(GL_FRONT_AND_BACK, GL_EMISSION, emission);
 
+    // Матрица сохраняется, чтобы перенос сферы не сдвинул следующие объекты
     glPushMatrix();
     glTranslatef(position.x, position.y, position.z);
     glutSolidSphere(ModelRadius * 0.09f, 20, 14);
     glPopMatrix();
 
+    // После сферы свечение материала обязательно отключается
     glMaterialfv(GL_FRONT_AND_BACK, GL_EMISSION, noEmission);
 }
 
 // Сохраняет неизменяемую геометрию комнаты в списке отображения
 void CreateRoomDisplayList()
 {
+    // Список один раз запоминает команды рисования неизменяемой комнаты
     RoomDisplayList = glGenLists(1);
     glNewList(RoomDisplayList, GL_COMPILE);
     DrawRoom();
@@ -960,6 +1052,7 @@ void CreateRoomDisplayList()
 // Рисует координатные оси без влияния освещения
 void DrawAxes()
 {
+    // Состояние освещения сохраняется, чтобы восстановить его после цветных линий
     bool lightingWasEnabled = glIsEnabled(GL_LIGHTING) == GL_TRUE;
     glDisable(GL_LIGHTING);
     glDisable(GL_TEXTURE_2D);
@@ -992,6 +1085,7 @@ void DrawAxes()
 // Рисует нормали модели цветными отрезками
 void DrawNormals()
 {
+    // Нормали показываются служебными линиями без расчёта освещения
     bool lightingWasEnabled = glIsEnabled(GL_LIGHTING) == GL_TRUE;
     glDisable(GL_LIGHTING);
     glDisable(GL_TEXTURE_2D);
@@ -1065,13 +1159,18 @@ void DrawNormals()
 // Настраивает перспективную или ортографическую проекцию
 void SetupProjection()
 {
+    // Отношение сторон не даёт изображению растягиваться при изменении окна
     float aspect = static_cast<float>(WindowWidth) / WindowHeight;
 
+    // Все последующие матричные команды изменяют матрицу проекции
     glMatrixMode(GL_PROJECTION);
+
+    // Проекция каждого кадра строится заново без накопления старых значений
     glLoadIdentity();
 
     if (PerspectiveProjection)
     {
+        // Угол обзора 50 градусов создаёт перспективное уменьшение с расстоянием
         gluPerspective(
             50.0,
             aspect,
@@ -1081,6 +1180,7 @@ void SetupProjection()
     }
     else
     {
+        // Размер ортографического объёма подбирается под текущее расстояние камеры
         float halfHeight = CameraDistance * tanf(25.0f * PI / 180.0f);
         glOrtho(
             -halfHeight * aspect,
@@ -1096,10 +1196,13 @@ void SetupProjection()
 // Переводит углы и расстояние камеры в трёхмерную позицию
 Vec3 GetCameraPosition()
 {
+    // Стандартные sin и cos работают с радианами, а управление хранит градусы
     float yaw = CameraYaw * PI / 180.0f;
     float pitch = CameraPitch * PI / 180.0f;
+    // Это проекция расстояния до камеры на горизонтальную плоскость XZ
     float horizontalDistance = CameraDistance * cosf(pitch);
 
+    // Сферические параметры превращаются в смещение от центра модели
     return ModelCenter + Vec3{
         horizontalDistance * sinf(yaw),
         CameraDistance * sinf(pitch),
@@ -1139,6 +1242,8 @@ void UpdateWindowTitle()
 void RefreshWindow()
 {
     UpdateWindowTitle();
+
+    // Запрос помещается в цикл событий, после чего GLUT вызовет Display
     glutPostRedisplay();
 }
 
@@ -1151,11 +1256,13 @@ void Display()
 
     SetupProjection();
 
+    // Переключается матрица камеры и объектов и сбрасывается состояние прошлого кадра
     glMatrixMode(GL_MODELVIEW);
     glLoadIdentity();
 
     // Камера всегда направлена в центр модели
     Vec3 camera = GetCameraPosition();
+    // где наблюдатель, куда смотрит, где верх
     gluLookAt(
         camera.x, camera.y, camera.z,
         ModelCenter.x, ModelCenter.y, ModelCenter.z,
@@ -1163,6 +1270,7 @@ void Display()
     );
 
     // Элементы сцены рисуются от комнаты к модели
+    // Свет задаётся после камеры, поэтому остаётся закреплённым в мировых координатах
     ConfigureLighting();
     glCallList(RoomDisplayList);
     DrawLightMarker();
@@ -1174,12 +1282,14 @@ void Display()
         DrawNormals();
     }
 
+    // Полностью готовый задний буфер становится видимым
     glutSwapBuffers();
 }
 
 // Обновляет размеры окна и область вывода OpenGL
 void Reshape(GLint width, GLint height)
 {
+    // Минимум 1 защищает расчёт отношения сторон от деления на ноль
     WindowWidth = max(width, 1);
     WindowHeight = max(height, 1);
     glViewport(0, 0, WindowWidth, WindowHeight);
@@ -1196,7 +1306,10 @@ void ResetCamera()
 // Приближает или отдаляет камеру в допустимых пределах
 void ChangeCameraDistance(float factor)
 {
+    // Коэффициент меньше 1 приближает, больше 1 отдаляет камеру
     CameraDistance *= factor;
+
+    // Ограничения не дают камере попасть внутрь модели или слишком далеко уйти
     CameraDistance = max(ModelRadius * 1.3f, CameraDistance);
     CameraDistance = min(ModelRadius * 4.8f, CameraDistance);
 }
@@ -1247,6 +1360,7 @@ void SpecialKeyboard(int key, int, int)
 // Обрабатывает кнопки и колесо мыши
 void Mouse(int button, int state, int x, int y)
 {
+    // ЛКМ включает режим вращения и запоминает начальную позицию курсора
     if (button == GLUT_LEFT_BUTTON)
     {
         MouseDragging = state == GLUT_DOWN;
@@ -1254,6 +1368,7 @@ void Mouse(int button, int state, int x, int y)
         LastMouseY = y;
     }
 
+    // FreeGLUT сообщает прокрутку вверх как кнопку 3, вниз как кнопку 4
     if (state == GLUT_DOWN && button == 3)
     {
         ChangeCameraDistance(0.9f);
@@ -1275,6 +1390,7 @@ void MouseMotion(int x, int y)
         return;
     }
 
+    // Разница между текущей и прошлой позицией превращается в изменение углов
     CameraYaw += (x - LastMouseX) * 0.4f;
     CameraPitch += (LastMouseY - y) * 0.4f;
     CameraPitch = max(-8.0f, min(75.0f, CameraPitch));
@@ -1336,6 +1452,7 @@ void Menu(int command)
 // Создаёт контекстное меню и его вложенные разделы
 void CreateContextMenu()
 {
+    // Подменю света и текстур используют тот же callback Menu
     int lightMenu = glutCreateMenu(Menu);
     glutAddMenuEntry("Distant directional light (1)", MENU_DIRECTIONAL_LIGHT);
     glutAddMenuEntry("Point light (2)", MENU_POINT_LIGHT);
@@ -1347,6 +1464,7 @@ void CreateContextMenu()
     glutAddMenuEntry("Checker (5)", MENU_CHECKER_TEXTURE);
     glutAddMenuEntry("Brushed metal (6)", MENU_METAL_TEXTURE);
 
+    // Последнее созданное меню становится основным
     glutCreateMenu(Menu);
     glutAddMenuEntry("Filled / wireframe (F)", MENU_WIREFRAME);
     glutAddMenuEntry("Show normals (N)", MENU_NORMALS);
@@ -1357,6 +1475,7 @@ void CreateContextMenu()
     glutAddSubMenu("Light type", lightMenu);
     glutAddMenuEntry("Reset camera (Home / R)", MENU_RESET_CAMERA);
     glutAddMenuEntry("Exit (Esc)", MENU_EXIT);
+    // Основное меню открывается правой кнопкой мыши
     glutAttachMenu(GLUT_RIGHT_BUTTON);
 }
 
@@ -1365,12 +1484,25 @@ void InitializeOpenGL()
 {
     const GLfloat globalAmbient[] = { 0.008f, 0.008f, 0.01f, 1.0f };
 
+    // Буфер глубины оставляет ближайшие к камере фрагменты
     glEnable(GL_DEPTH_TEST);
+
+    // Нормали автоматически приводятся к единичной длине после преобразований
     glEnable(GL_NORMALIZE);
+
+    // Освещение рассчитывается для обеих сторон граней комнаты и модели
     glLightModeli(GL_LIGHT_MODEL_TWO_SIDE, GL_TRUE);
+
+    // Направление к наблюдателю вычисляется от каждой вершины для точных бликов
     glLightModeli(GL_LIGHT_MODEL_LOCAL_VIEWER, GL_TRUE);
+
+    // Слабый общий свет не даёт неосвещённым поверхностям стать полностью чёрными
     glLightModelfv(GL_LIGHT_MODEL_AMBIENT, globalAmbient);
+
+    // Цвета освещения плавно интерполируются между вершинами
     glShadeModel(GL_SMOOTH);
+
+    // Ресурсы создаются после появления действующего окна OpenGL
     CreateTextures();
     CreateRoomDisplayList();
 }
