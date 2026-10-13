@@ -21,6 +21,10 @@ using namespace std;
 const float PI = 3.1415926535f;
 const float EPSILON = 0.00001f;
 
+// Общий фоновый свет сцены и его полностью выключенное состояние
+const GLfloat SCENE_AMBIENT[] = { 0.008f, 0.008f, 0.01f, 1.0f };
+const GLfloat NO_AMBIENT[] = { 0.0f, 0.0f, 0.0f, 1.0f };
+
 // Двумерная точка исходного сечения
 struct Vec2
 {
@@ -613,17 +617,19 @@ Vec3 GetLightPosition()
 // Настраивает выбранный источник в мировых координатах
 void ConfigureLighting()
 {
-    // Отключение GL_LIGHTING заставляет OpenGL использовать заданные цвета без света
+    // При выключенном источнике расчёт освещения сохраняется, но свет в сцену не поступает
     if (!LightingEnabled)
     {
-        glDisable(GL_LIGHTING);
+        glEnable(GL_LIGHTING);
         glDisable(GL_LIGHT0);
+        glLightModelfv(GL_LIGHT_MODEL_AMBIENT, NO_AMBIENT);
         return;
     }
 
     // Включает общий расчёт освещения и используемый источник GL_LIGHT0
     glEnable(GL_LIGHTING);
     glEnable(GL_LIGHT0);
+    glLightModelfv(GL_LIGHT_MODEL_AMBIENT, SCENE_AMBIENT);
 
     // Базовые цветовые составляющие источника
     GLfloat ambient[] = { 0.0f, 0.0f, 0.0f, 1.0f };
@@ -1487,7 +1493,7 @@ void CreateContextMenu()
     glutAddSubMenu("Texture", textureMenu);
     glutAddMenuEntry("Perspective / orthographic (P)", MENU_PROJECTION);
     glutAddMenuEntry("Smooth / flat normals (S)", MENU_SMOOTHING);
-    glutAddMenuEntry("Lighting (L)", MENU_LIGHTING);
+    glutAddMenuEntry("Light on / off (L)", MENU_LIGHTING);
     glutAddSubMenu("Light type", lightMenu);
     glutAddMenuEntry("Reset camera (Home / R)", MENU_RESET_CAMERA);
     glutAddMenuEntry("Exit (Esc)", MENU_EXIT);
@@ -1498,8 +1504,6 @@ void CreateContextMenu()
 // Включает основные возможности OpenGL и создаёт ресурсы сцены
 void InitializeOpenGL()
 {
-    const GLfloat globalAmbient[] = { 0.008f, 0.008f, 0.01f, 1.0f };
-
     // Буфер глубины оставляет ближайшие к камере фрагменты
     glEnable(GL_DEPTH_TEST);
 
@@ -1513,7 +1517,7 @@ void InitializeOpenGL()
     glLightModeli(GL_LIGHT_MODEL_LOCAL_VIEWER, GL_TRUE);
 
     // Слабый общий свет не даёт неосвещённым поверхностям стать полностью чёрными
-    glLightModelfv(GL_LIGHT_MODEL_AMBIENT, globalAmbient);
+    glLightModelfv(GL_LIGHT_MODEL_AMBIENT, SCENE_AMBIENT);
 
     // Цвета освещения плавно интерполируются между вершинами
     glShadeModel(GL_SMOOTH);
