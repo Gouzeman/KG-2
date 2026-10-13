@@ -577,15 +577,15 @@ void CreateTextures()
 void ApplyMaterial()
 {
     // Материал задаёт реакцию поверхности на фоновый, рассеянный и зеркальный свет
-    const GLfloat ambient[] = { 0.16f, 0.17f, 0.18f, 1.0f };
-    const GLfloat diffuse[] = { 0.58f, 0.61f, 0.65f, 1.0f };
-    const GLfloat specular[] = { 0.82f, 0.84f, 0.88f, 1.0f };
+    const GLfloat ambient[] = { 0.19f, 0.19f, 0.19f, 1.0f };
+    const GLfloat diffuse[] = { 0.50f, 0.50f, 0.50f, 1.0f };
+    const GLfloat specular[] = { 0.50f, 0.50f, 0.50f, 1.0f };
 
     glMaterialfv(GL_FRONT_AND_BACK, GL_AMBIENT, ambient);
     glMaterialfv(GL_FRONT_AND_BACK, GL_DIFFUSE, diffuse);
     glMaterialfv(GL_FRONT_AND_BACK, GL_SPECULAR, specular);
     // Чем больше GL_SHININESS, тем меньше и резче зеркальный блик
-    glMaterialf(GL_FRONT_AND_BACK, GL_SHININESS, 36.0f);
+    glMaterialf(GL_FRONT_AND_BACK, GL_SHININESS, 51.0f);
 }
 
 // Возвращает положение точечного источника или прожектора
@@ -601,11 +601,12 @@ Vec3 GetLightPosition()
         };
     }
 
-    // Точечная лампа располагается ближе к центру сцены
+    // Точечная лампа находится рядом с моделью со стороны исходного положения камеры
+    // Небольшое смещение вверх и в сторону освещает видимые верхние и боковые грани
     return {
-        ModelCenter.x + ModelRadius * 0.55f,
-        RoomCeilingY - ModelRadius * 0.30f,
-        ModelCenter.z + ModelRadius * 1.15f
+        ModelCenter.x + ModelRadius * 1.15f,
+        ModelCenter.y + ModelRadius * 1.10f,
+        ModelCenter.z + ModelRadius * 1.35f
     };
 }
 
@@ -639,7 +640,13 @@ void ConfigureLighting()
     }
     else if (CurrentLight == POINT_LIGHT)
     {
-        ambient[0] = ambient[1] = ambient[2] = 0.025f;
+        // Умеренный фоновый свет смягчает слишком тёмные участки модели
+        ambient[0] = 0.10f;
+        ambient[1] = 0.105f;
+        ambient[2] = 0.115f;
+        diffuse[0] = 0.98f;
+        diffuse[1] = 0.99f;
+        diffuse[2] = 1.0f;
     }
     else
     {
@@ -665,14 +672,22 @@ void ConfigureLighting()
             0.0025f / (ModelRadius * ModelRadius)
         );
     }
-    else
+    else if (CurrentLight == POINT_LIGHT)
     {
-        glLightf(GL_LIGHT0, GL_LINEAR_ATTENUATION, 0.10f / ModelRadius);
+        // Более слабое затухание делает расположенную рядом лампу достаточно яркой
+        glLightf(GL_LIGHT0, GL_CONSTANT_ATTENUATION, 0.75f);
+        glLightf(GL_LIGHT0, GL_LINEAR_ATTENUATION, 0.045f / ModelRadius);
         glLightf(
             GL_LIGHT0,
             GL_QUADRATIC_ATTENUATION,
-            0.035f / (ModelRadius * ModelRadius)
+            0.012f / (ModelRadius * ModelRadius)
         );
+    }
+    else
+    {
+        // Для удалённого направленного источника затухание не применяется
+        glLightf(GL_LIGHT0, GL_LINEAR_ATTENUATION, 0.0f);
+        glLightf(GL_LIGHT0, GL_QUADRATIC_ATTENUATION, 0.0f);
     }
 
     if (CurrentLight == DIRECTIONAL_LIGHT)
@@ -1254,6 +1269,7 @@ void Display()
     glClearColor(0.015f, 0.017f, 0.022f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
+    // выбираем матрицу проекции и пересоздаём её
     SetupProjection();
 
     // Переключается матрица камеры и объектов и сбрасывается состояние прошлого кадра
